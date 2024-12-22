@@ -22,6 +22,8 @@
 #endif
 
 #include <vector>
+#include <map>
+#include <string>
 #include <memory>
 
 SDL_Surface *LoadTexture(const char* filename) {
@@ -45,26 +47,50 @@ public:
 				ImVec2(Pos.x + Size.x, Pos.y + Size.y)
 				);
 	}
-};
 
-class Level {
-public:
-	std::vector<std::shared_ptr<Object>> Objects;
+	virtual void Act() {
+
+	}
 };
 
 class Player : public Object {
 
 };
 
+class Level {
+public:
+	std::shared_ptr<Player> CurrentPlayer;
+	std::vector<std::shared_ptr<Object>> Objects;
+	std::map<std::string, SDL_Texture*> Textures;
+
+	std::shared_ptr<Player> GetPlayer() { return CurrentPlayer; }
+};
+
+std::shared_ptr<Level> CurrentLevel;
+	
 class Enemy : public Object {
 public:
-	virtual void Attack(std::shared_ptr<Player> player) = 0;
 };
 
 class Canova : public Enemy {
 public:
-	void Attack(std::shared_ptr<Player> player) override {
+	double lastAttackTimer = 0;
 
+	void Act() override {
+		std::shared_ptr<Player> player = CurrentLevel->GetPlayer();
+		ImVec2 canovaCentre = ImVec2(this->Pos.x + this->Size.x / 2, this->Pos.y + this->Size.y / 2);
+		ImVec2 playerCentre = ImVec2(player->Pos.x + player->Size.x / 2, player->Pos.y + player->Size.y / 2);
+
+		double dirX = playerCentre.x - canovaCentre.x;
+		double dirY = playerCentre.y - canovaCentre.y;
+
+		double length = sqrt(dirX*dirX+dirY*dirY);
+		double normX = dirX/length;
+		double normY = dirY/length;
+
+		ImVec2 movementCentre(canovaCentre.x + normX * 50, canovaCentre.y + normY * 50);
+
+		ImGui::GetForegroundDrawList()->AddLine(canovaCentre, movementCentre, ImGui::GetColorU32(ImVec4(255, 0, 0, 255)), 10);
 	}
 };
 
@@ -73,14 +99,15 @@ class Obstacle : public Object {
 };
 
 class Projectile : public Object {
+	ImVec2 Movement;
+	void Act() override {
 
+	}
 };
 
 class Tilemap {
 
 };
-
-
 
 // Main code
 int main(int, char**)
@@ -175,11 +202,10 @@ int main(int, char**)
 		SDL_FreeSurface(surface);
 	}
 
-	Level level;
-	level.Objects.push_back(player);
-	level.Objects.push_back(canova);
-	level.Objects.push_back(scalpel);
-
+	CurrentLevel = std::make_shared<Level>();
+	CurrentLevel->CurrentPlayer = player;
+	CurrentLevel->Objects.push_back(player);
+	CurrentLevel->Objects.push_back(canova);
 
 	// Main loop
 	bool done = false;
@@ -255,11 +281,10 @@ int main(int, char**)
 
 			}
 
-			for (auto& object : level.Objects) {
+			for (auto& object : CurrentLevel->Objects) {
+				object->Act();
 				object->Draw();
 			}
-
-			canova->Attack(player);
 
 			/*
 			ImGui::GetBackgroundDrawList()->AddImage(
