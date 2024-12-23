@@ -25,6 +25,7 @@
 #include <map>
 #include <string>
 #include <memory>
+#include <algorithm>
 #include <iostream>
 
 SDL_Surface *LoadTexture(const char* filename) {
@@ -40,6 +41,7 @@ public:
 	SDL_Texture *Texture;
 	ImVec2 Pos;
 	ImVec2 Size;
+	bool Destroy = false;
 
 	void Draw() {
 		ImGui::GetBackgroundDrawList()->AddImage(
@@ -82,8 +84,19 @@ class Projectile : public Object {
 public:
 	ImVec2 Movement;
 	double LastMovementTimer = 0;
+	double StartMovementTimer = 0;
 	void Act() override {
 		double ticks = SDL_GetTicks();
+
+		if (StartMovementTimer == 0) {
+			StartMovementTimer = ticks;
+		}
+
+		if (StartMovementTimer + 1000 < ticks) {
+			// Destroy self
+			Destroy = true;
+		}
+
 		Pos.x += Movement.x * (ticks - LastMovementTimer);
 		Pos.y += Movement.y * (ticks - LastMovementTimer);
 		LastMovementTimer = ticks;
@@ -313,6 +326,15 @@ int main(int, char**)
 						std::make_move_iterator(CurrentLevel->NewObjects.begin()), 
                     				std::make_move_iterator(CurrentLevel->NewObjects.end()));
 			CurrentLevel->NewObjects.clear();
+
+			// Use std::remove_if to move elements to the end that should be destroyed
+			auto it = std::remove_if(CurrentLevel->Objects.begin(), CurrentLevel->Objects.end(), [](std::shared_ptr<Object> obj) {
+					return obj->Destroy;
+					});
+
+			// Erase the extra elements from the vector
+			CurrentLevel->Objects.erase(it, CurrentLevel->Objects.end());
+
 
 
 
