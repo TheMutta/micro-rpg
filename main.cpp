@@ -13,7 +13,6 @@
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_sdlrenderer2.h"
-#include <stdio.h>
 #include <SDL.h>
 #include <SDL_image.h>
 
@@ -21,10 +20,12 @@
 #error This backend requires SDL 2.0.17+ because of SDL_RenderGeometry() function
 #endif
 
+#include <cstdio>
 #include <vector>
 #include <map>
 #include <string>
 #include <memory>
+#include <iostream>
 
 SDL_Surface *LoadTexture(const char* filename) {
 	SDL_Surface *surface = IMG_Load(filename);
@@ -61,6 +62,7 @@ class Level {
 public:
 	std::shared_ptr<Player> CurrentPlayer;
 	std::vector<std::shared_ptr<Object>> Objects;
+	std::vector<std::shared_ptr<Object>> NewObjects;
 	std::map<std::string, SDL_Texture*> Textures;
 
 	std::shared_ptr<Player> GetPlayer() { return CurrentPlayer; }
@@ -72,38 +74,57 @@ class Enemy : public Object {
 public:
 };
 
-class Canova : public Enemy {
-public:
-	double lastAttackTimer = 0;
-
-	void Act() override {
-		std::shared_ptr<Player> player = CurrentLevel->GetPlayer();
-		ImVec2 canovaCentre = ImVec2(this->Pos.x + this->Size.x / 2, this->Pos.y + this->Size.y / 2);
-		ImVec2 playerCentre = ImVec2(player->Pos.x + player->Size.x / 2, player->Pos.y + player->Size.y / 2);
-
-		double dirX = playerCentre.x - canovaCentre.x;
-		double dirY = playerCentre.y - canovaCentre.y;
-
-		double length = sqrt(dirX*dirX+dirY*dirY);
-		double normX = dirX/length;
-		double normY = dirY/length;
-
-		ImVec2 movementCentre(canovaCentre.x + normX * 50, canovaCentre.y + normY * 50);
-
-		ImGui::GetForegroundDrawList()->AddLine(canovaCentre, movementCentre, ImGui::GetColorU32(ImVec4(255, 0, 0, 255)), 10);
-	}
-};
-
 class Obstacle : public Object {
 
 };
 
 class Projectile : public Object {
+public:
 	ImVec2 Movement;
+	double LastMovementTimer = 0;
 	void Act() override {
-
+		double ticks = SDL_GetTicks();
+		Pos.x += Movement.x * (ticks - LastMovementTimer);
+		Pos.y += Movement.y * (ticks - LastMovementTimer);
+		LastMovementTimer = ticks;
 	}
 };
+
+class Canova : public Enemy {
+public:
+	double lastAttackTimer = 0;
+
+	void Act() override {
+		if (lastAttackTimer + 1000 < SDL_GetTicks()) {
+			lastAttackTimer = SDL_GetTicks();
+
+			std::shared_ptr<Player> player = CurrentLevel->GetPlayer();
+			ImVec2 canovaCentre = ImVec2(this->Pos.x + this->Size.x / 2, this->Pos.y + this->Size.y / 2);
+			ImVec2 playerCentre = ImVec2(player->Pos.x + player->Size.x / 2, player->Pos.y + player->Size.y / 2);
+
+			double dirX = playerCentre.x - canovaCentre.x;
+			double dirY = playerCentre.y - canovaCentre.y;
+
+			double length = sqrt(dirX*dirX+dirY*dirY);
+			double normX = dirX/length;
+			double normY = dirY/length;
+
+			srand(SDL_GetTicks());
+			ImVec2 movementCentre(canovaCentre.x + normX * 100.0f + (rand() % 10 - 5), canovaCentre.y + normY * 100.0f + (rand() % 10 - 5));
+			ImGui::GetForegroundDrawList()->AddLine(canovaCentre, movementCentre, ImGui::GetColorU32(ImVec4(255, 0, 0, 255)), 10);
+
+			std::shared_ptr<Projectile> projectile = std::make_shared<Projectile>();
+			projectile->Texture = CurrentLevel->Textures["scalpel"];
+			projectile->Pos = Pos;
+			projectile->Size = Size;
+			projectile->Movement = ImVec2(normX, normY);
+			projectile->LastMovementTimer = SDL_GetTicks();
+			CurrentLevel->NewObjects.push_back(projectile);
+		}
+	}
+};
+
+
 
 class Tilemap {
 
@@ -159,6 +180,9 @@ int main(int, char**)
 	// Our state
 	bool render_game = true;
 	bool render_vn = false;
+	
+	CurrentLevel = std::make_shared<Level>();
+
 	SDL_Texture *backgroundTexture;
 	{
 		SDL_Surface* surface = LoadTexture("assets/background.png");
@@ -170,39 +194,35 @@ int main(int, char**)
 		SDL_FreeSurface(surface);
 	}
 
-	std::shared_ptr<Player> player = std::make_shared<Player>();
-	player->Pos = ImVec2(0,0);
-	player->Size = ImVec2(64, 64);
 	{
 		SDL_Surface* surface = LoadTexture("assets/ProtagonistFront.png");
 		if (!surface) {
 			SDL_Quit();
 			return -1;
 	 	}
-		player->Texture = SDL_CreateTextureFromSurface(renderer, surface);
+		CurrentLevel->Textures["player"] = SDL_CreateTextureFromSurface(renderer, surface);
 		SDL_FreeSurface(surface);
 	}
 
-
-
-	std::shared_ptr<Canova> canova = std::make_shared<Canova>();
-	canova->Pos = ImVec2(600, 400);
-	canova->Size = ImVec2(64, 64);
-
-	std::shared_ptr<Projectile> scalpel = std::make_shared<Projectile>();
-	scalpel->Pos = ImVec2(400, 400);
-	scalpel->Size = ImVec2(64, 64);
 	{
 		SDL_Surface* surface = LoadTexture("assets/CanovaScalpello.png");
 		if (!surface) {
 			SDL_Quit();
 			return -1;
 		}
-		scalpel->Texture = SDL_CreateTextureFromSurface(renderer, surface);
+		CurrentLevel->Textures["scalpel"]= SDL_CreateTextureFromSurface(renderer, surface);
 		SDL_FreeSurface(surface);
 	}
 
-	CurrentLevel = std::make_shared<Level>();
+	std::shared_ptr<Player> player = std::make_shared<Player>();
+	player->Texture = CurrentLevel->Textures["player"];
+	player->Pos = ImVec2(0,0);
+	player->Size = ImVec2(64, 64);
+
+	std::shared_ptr<Canova> canova = std::make_shared<Canova>();
+	canova->Pos = ImVec2(600, 400);
+	canova->Size = ImVec2(64, 64);
+
 	CurrentLevel->CurrentPlayer = player;
 	CurrentLevel->Objects.push_back(player);
 	CurrentLevel->Objects.push_back(canova);
@@ -285,6 +305,16 @@ int main(int, char**)
 				object->Act();
 				object->Draw();
 			}
+
+			//std::cout << "New objects: " << CurrentLevel->NewObjects.size() << std::endl;
+			
+
+			CurrentLevel->Objects.insert(CurrentLevel->Objects.end(),
+						std::make_move_iterator(CurrentLevel->NewObjects.begin()), 
+                    				std::make_move_iterator(CurrentLevel->NewObjects.end()));
+			CurrentLevel->NewObjects.clear();
+
+
 
 			/*
 			ImGui::GetBackgroundDrawList()->AddImage(
